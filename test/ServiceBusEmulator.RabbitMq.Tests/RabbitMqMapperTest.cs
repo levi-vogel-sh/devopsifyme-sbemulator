@@ -1,3 +1,4 @@
+using System.Globalization;
 using Amqp.Framing;
 using Amqp.Types;
 using AutoFixture;
@@ -75,10 +76,34 @@ namespace ServiceBusEmulator.RabbitMq.Tests
             Assert.True(message.MessageAnnotations.Map.TryAdd("null-message-annotation", null));
 
             var rabbitProperties = Fixture.Create<IBasicProperties>();
-            var rabbitPayload = Sut.MapToRabbit(rabbitProperties, message); // [Diagnostic-Id, ]
+            var rabbitPayload = Sut.MapToRabbit(rabbitProperties, message);
 
             Assert.False(rabbitProperties.Headers.TryGetValue("x-sb-app-null-application-property", out var nullProperty));
             Assert.False(rabbitProperties.Headers.TryGetValue("x-sb-annotation-null-message-annotation", out var nullAnnotation));
+        }
+
+        /// <summary>
+        /// ScheduledEnqueueTime needs special (de)serialization logic
+        /// </summary>
+        [Fact]
+        public void ThatMappedMessagesPreserveScheduledEnqueueTime()
+        {
+            var message = ProvideFixtureMessage();
+            var rabbitProperties = Fixture.Create<IBasicProperties>();
+            var amqpMessage = new Amqp.Message();
+            var inputTime = DateTime.UtcNow;
+
+            Assert.True(message.MessageAnnotations.Map.TryAdd(RabbitMqMapper.ScheduledEnqueueTimeHeaderKey, inputTime));
+            
+            var rabbitPayload = Sut.MapToRabbit(rabbitProperties, message);
+
+            Assert.True(rabbitProperties.Headers.TryGetValue($"x-sb-annotation-{RabbitMqMapper.ScheduledEnqueueTimeHeaderKey}", out var prop));
+            Assert.Equal(inputTime, DateTime.ParseExact((string)prop, "o", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
+
+            Sut.MapFromRabbit(amqpMessage, rabbitPayload, rabbitProperties);
+
+            Assert.True(amqpMessage.MessageAnnotations.Map.TryGetValue(new Symbol(RabbitMqMapper.ScheduledEnqueueTimeHeaderKey), out var resultTime));
+            Assert.Equal(inputTime, resultTime);
         }
     }
 }

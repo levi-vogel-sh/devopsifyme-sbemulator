@@ -8,6 +8,8 @@ namespace ServiceBusEmulator.RabbitMq
 {
     public class RabbitMqMapper : IRabbitMqMapper
     {
+        public const string ScheduledEnqueueTimeHeaderKey = "x-opt-scheduled-enqueue-time";
+
         public void MapFromRabbit(Message message, ReadOnlyMemory<byte> body, IBasicProperties prop)
         {
             message.BodySection = prop.Type switch
@@ -46,7 +48,9 @@ namespace ServiceBusEmulator.RabbitMq
             message.MessageAnnotations = new MessageAnnotations();
             foreach ((string key, object? value) in prop.GetHeadersStartingWith<object>("x-sb-annotation-"))
             {
-                message.MessageAnnotations[new Symbol(key)] = value;
+                message.MessageAnnotations[new Symbol(key)] = (key == ScheduledEnqueueTimeHeaderKey && value is not null)
+                    ? DateTime.ParseExact((string)value, "o", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)
+                    : value;
             }
             message.MessageAnnotations[new Symbol("x-opt-locked-until")] = DateTime.UtcNow.AddDays(1);
 
@@ -127,7 +131,9 @@ namespace ServiceBusEmulator.RabbitMq
             {
                 foreach (KeyValuePair<object, object?> p in rMessage.MessageAnnotations.Map)
                 {
-                    prop.Headers[$"x-sb-annotation-{p.Key}"] = p.Value?.ToString();
+                    prop.Headers[$"x-sb-annotation-{p.Key}"] = (p.Key.ToString() == ScheduledEnqueueTimeHeaderKey && p.Value is not null)
+                        ? ((DateTime)p.Value).ToString("o", CultureInfo.InvariantCulture)
+                        : p.Value?.ToString();
                 }
             }
 
